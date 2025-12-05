@@ -95,6 +95,12 @@ def test_router_forward_throughput(
     num_tokens, num_keys, top_k = case
     device = torch.device("cuda")
 
+    num_expert = num_keys * num_keys
+    print(
+        f"[router forward] num_tokens={num_tokens}, "
+        f"num_expert={num_expert}, select_expert={top_k}"
+    )
+
     impls = testing.get_impls(
         pytorch_impl=pytorch_router_forward,
         triton_impl=triton_router_forward,
@@ -134,6 +140,12 @@ def test_router_backward_throughput(
 ) -> None:
     num_tokens, num_keys, top_k = case
     device = torch.device("cuda")
+
+    num_expert = num_keys * num_keys
+    print(
+        f"[router backward] num_tokens={num_tokens}, "
+        f"num_expert={num_expert}, select_expert={top_k}"
+    )
 
     impls = testing.get_impls(
         pytorch_impl=pytorch_router_forward_backward,
