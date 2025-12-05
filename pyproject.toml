@@ -1,0 +1,47 @@
+[build-system]
+requires = [
+  "setuptools>=64",
+  "wheel",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flash-moe"
+dynamic = ["version"]
+description = "Flash MoE kernels."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.8"
+dependencies = [
+  "torch",
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: Unix",
+]
+
+[project.urls]
+Homepage = "https://github.com/flash-algo/flash-moe"
+Source = "https://github.com/flash-algo/flash-moe"
+Issues = "https://github.com/flash-algo/flash-moe/issues"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=6.0",
+  "black",
+  "ruff",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "flash_moe.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["flash_moe*"]
+exclude = [
+  "build",
+  "dist",
+  "tests",
+]
+
