@@ -1,12 +1,12 @@
 # Flash Router
 
-The **flash router** is a accelerated primitive for computing the top‑$k$ pairwise routing scores between two sets of logits. It is designed for high‑throughput expert routing or key–value selection in Mixture‑of‑Experts style architectures.
+The **flash router** is a accelerated primitive for computing the top‑k pairwise routing scores between two sets of logits. It is designed for high‑throughput expert routing or key–value selection in Mixture‑of‑Experts style architectures.
 
-For each token, the router takes two 1D logit vectors of length $N$ and forms all $N^2$ pairwise combinations, then returns the top‑$k$ scores and their indices. The computation is fused in a single GPU kernel that:
+For each token, the router takes two 1D logit vectors of length $N$ and forms all $N^2$ pairwise combinations, then returns the top‑k scores and their indices. The computation is fused in a single GPU kernel that:
 
 - materializes the pairwise scores implicitly inside the Triton kernel,
-- finds the top‑$k$ pairs per token,
-- writes out only the top‑$k$ scores and flattened pair indices.
+- finds the top‑k pairs per token,
+- writes out only the top‑k scores and flattened pair indices.
 
 
 ## Kernel Interface
