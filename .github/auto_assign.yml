@@ -1,0 +1,14 @@
+addReviewers: true
+addAssignees: true
+
+# If true, adds reviewers/assignees only if PR author is not in the list
+skipUsers:
+  - dependabot[bot]
+
+reviewers:
+  - LoserCheems
+
+assignees:
+  - LoserCheems
+
+numberOfReviewers: 8
