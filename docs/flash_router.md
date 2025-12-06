@@ -16,28 +16,28 @@ The primary user‑facing API is the autograd‑aware wrapper:
 ```python
 from flash_moe.ops.flash_router import triton_flash_router_func
 
-scores, indices = triton_flash_router_func(router_logits, num_keys, top_k)
+scores, indices = triton_flash_router_func(router_logits, num_expert_keys, num_experts_per_tok)
 ```
 
 **Arguments**
 
 - `router_logits` (`torch.Tensor`):
-	- shape: `(2, num_tokens, num_keys)`;
+	- shape: `(2, num_tokens, num_expert_keys)`;
 	- dtype: typically `torch.float32` (internally cast to `float32`);
 	- device: CUDA tensor (the Triton kernels run on GPU).
-- `num_keys` (`int`):
+- `num_expert_keys` (`int`):
 	- number of keys $N$ per token; must equal `router_logits.size(-1)`.
-- `top_k` (`int`):
-	- number of pairwise combinations to select per token; must satisfy `0 <= top_k <= num_keys`.
+- `num_experts_per_tok` (`int`):
+	- number of pairwise combinations to select per token; must satisfy `0 <= num_experts_per_tok <= num_expert_keys`.
 
 **Returns**
 
 - `scores` (`torch.Tensor`):
-	- shape: `(num_tokens, top_k)`;
+	- shape: `(num_tokens, num_experts_per_tok)`;
 	- dtype: same as input `router_logits` (the kernel runs in `float32` and casts back).
 - `indices` (`torch.LongTensor`):
-	- shape: `(num_tokens, top_k)`;
-	- flattened pair indices $k = i \cdot N + j$ with `0 <= k < num_keys * num_keys`.
+	- shape: `(num_tokens, num_experts_per_tok)`;
+	- flattened pair indices $k = i \cdot N + j$ with `0 <= k < num_expert_keys * num_expert_keys`.
 
 
 ## Testing
@@ -61,4 +61,4 @@ Make sure that:
 
 - PyTorch is installed with CUDA support,
 - Triton is installed and compatible with your CUDA/PyTorch version,
-- the environment has a GPU and sufficient memory for the chosen `(num_tokens, num_keys, top_k)` settings.
+- the environment has a GPU and sufficient memory for the chosen `(num_tokens, num_expert_keys, num_experts_per_tok)` settings.
