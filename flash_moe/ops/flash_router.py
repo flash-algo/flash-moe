@@ -21,8 +21,8 @@ def _fwd_kernel(
     router_logits_ptr,
     scores_ptr,
     indices_ptr,
-    num_keys: tl.constexpr,
-    top_k: tl.constexpr,
+    num_expert_keys: tl.constexpr,
+    num_experts_per_tok: tl.constexpr,
     stride_rs,
     stride_rt,
     stride_rk,
@@ -34,11 +34,11 @@ def _fwd_kernel(
 ):
     start_token = tl.program_id(0)
     offs = tl.arange(0, BLOCK_SIZE)
-    k2 = num_keys * num_keys
+    k2 = num_expert_keys * num_expert_keys
     mask = offs < k2
 
-    ix = offs // num_keys
-    iy = offs - ix * num_keys
+    ix = offs // num_expert_keys
+    iy = offs - ix * num_expert_keys
 
     x_ptrs = (
         router_logits_ptr + 0 * stride_rs + start_token * stride_rt + ix * stride_rk
@@ -52,7 +52,7 @@ def _fwd_kernel(
     )
     scores = tl.where(mask, scores, -float("inf"))
 
-    for k in range(top_k):
+    for k in range(num_experts_per_tok):
         topk_scores = tl.max(scores, axis=0)
         topk_indices = tl.argmax(scores, axis=0)
 
@@ -72,8 +72,8 @@ def _bwd_kernel(
     dscores_ptr,
     indices_ptr,
     drouter_logits_ptr,
-    num_keys: tl.constexpr,
-    top_k: tl.constexpr,
+    num_expert_keys: tl.constexpr,
+    num_experts_per_tok: tl.constexpr,
     stride_dst,
     stride_dsk,
     stride_it,
@@ -83,8 +83,8 @@ def _bwd_kernel(
     stride_drk,
 ):
     start_token = tl.program_id(0)
-    offs = tl.arange(0, top_k)
-    mask = offs < top_k
+    offs = tl.arange(0, num_experts_per_tok)
+    mask = offs < num_experts_per_tok
 
     dscores = tl.load(
         dscores_ptr + start_token * stride_dst + offs * stride_dsk,
@@ -97,8 +97,8 @@ def _bwd_kernel(
         other=0,
     )
 
-    ix = indices // num_keys
-    iy = indices - ix * num_keys
+    ix = indices // num_expert_keys
+    iy = indices - ix * num_expert_keys
 
     tl.atomic_add(
         drouter_logits_ptr
@@ -120,36 +120,36 @@ def _bwd_kernel(
 
 def _flash_router_forward(
     router_logits: torch.Tensor,
-    num_keys: int,
-    top_k: int,
+    num_expert_keys: int,
+    num_experts_per_tok: int,
 ):
     assert router_logits.dim() == 3, (
-        "router_logits must be a 3D tensor of shape (2, batch_size * seq_len, num_keys)"
+        "router_logits must be a 3D tensor of shape (2, batch_size * seq_len, num_expert_keys)"
     )
     assert router_logits.size(0) == 2, "The first dimension of router_logits must be 2"
-    assert 0 <= top_k <= num_keys, (
-        f"top_k should be in [0, {num_keys}], but got {top_k}"
+    assert 0 <= num_experts_per_tok <= num_expert_keys, (
+        f"num_experts_per_tok should be in [0, {num_expert_keys}], but got {num_experts_per_tok}"
     )
     num_tokens = router_logits.size(1)
     dtype = router_logits.dtype
 
     router_logits = router_logits.to(torch.float32)
     scores = torch.empty(
-        (num_tokens, top_k), device=router_logits.device, dtype=router_logits.dtype
+        (num_tokens, num_experts_per_tok), device=router_logits.device, dtype=router_logits.dtype
     )
     indices = torch.empty(
-        (num_tokens, top_k), device=router_logits.device, dtype=torch.int64
+        (num_tokens, num_experts_per_tok), device=router_logits.device, dtype=torch.int64
     )
 
-    BLOCK_SIZE = _next_power_of_two(num_keys * num_keys)
+    BLOCK_SIZE = _next_power_of_two(num_expert_keys * num_expert_keys)
     grid = (num_tokens,)
 
     _fwd_kernel[grid](
         router_logits,
         scores,
         indices,
-        num_keys,
-        top_k,
+        num_expert_keys,
+        num_experts_per_tok,
         router_logits.stride(0),
         router_logits.stride(1),
         router_logits.stride(2),
@@ -166,12 +166,12 @@ def _flash_router_forward(
 def _flash_router_backward(
     dscores: torch.Tensor,
     indices: torch.Tensor,
-    num_keys: int,
+    num_expert_keys: int,
 ):
-    num_tokens, top_k = dscores.shape
+    num_tokens, num_experts_per_tok = dscores.shape
 
     drouter_logits = torch.zeros(
-        (2, num_tokens, num_keys), device=dscores.device, dtype=dscores.dtype
+        (2, num_tokens, num_expert_keys), device=dscores.device, dtype=dscores.dtype
     )
     grid = (num_tokens,)
 
@@ -179,8 +179,8 @@ def _flash_router_backward(
         dscores,
         indices,
         drouter_logits,
-        num_keys,
-        top_k,
+        num_expert_keys,
+        num_experts_per_tok,
         dscores.stride(0),
         dscores.stride(1),
         indices.stride(0),
@@ -195,23 +195,23 @@ def _flash_router_backward(
 
 class FlashRouterFunc(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, router_logits, num_keys, top_k):
+    def forward(ctx, router_logits, num_expert_keys, num_experts_per_tok):
         """
         Args:
-            router_logits: (2, batch_size * seq_len, num_keys)
-            num_keys: int
-            top_k: int
+            router_logits: (2, batch_size * seq_len, num_expert_keys)
+            num_expert_keys: int
+            num_experts_per_tok: int
 
         Returns:
-            scores: (batch_size * seq_len, top_k)
-            indices: (batch_size * seq_len, top_k)
+            scores: (batch_size * seq_len, num_experts_per_tok)
+            indices: (batch_size * seq_len, num_experts_per_tok)
         """
         # Make sure that the last dimension is contiguous
         router_logits = maybe_contiguous(router_logits)
 
-        scores, indices = _flash_router_forward(router_logits, num_keys, top_k)
+        scores, indices = _flash_router_forward(router_logits, num_expert_keys, num_experts_per_tok)
         ctx.save_for_backward(indices)
-        ctx.num_keys = num_keys
+        ctx.num_expert_keys = num_expert_keys
 
         return scores, indices
 
@@ -221,11 +221,11 @@ class FlashRouterFunc(torch.autograd.Function):
         # Make sure that the last dimension is contiguous
         dscores = maybe_contiguous(dscores)
 
-        drouter_logits = _flash_router_backward(dscores, indices, ctx.num_keys)
+        drouter_logits = _flash_router_backward(dscores, indices, ctx.num_expert_keys)
 
         # No gradients for indices
         return drouter_logits, None, None
 
 
-def triton_flash_router_func(router_logits, num_keys, top_k):
-    return FlashRouterFunc.apply(router_logits, num_keys, top_k)
+def triton_flash_router_func(router_logits, num_expert_keys, num_experts_per_tok):
+    return FlashRouterFunc.apply(router_logits, num_expert_keys, num_experts_per_tok)
