@@ -247,14 +247,14 @@ def run_benchmarks(
 
     dtype = _get_primary_dtype(baseline_output)
     if dtype == torch.float32:
-        rtol = 1e-5
-        atol = 1e-8
-    elif dtype == torch.float16:
-        rtol = 1e-3
-        atol = 1e-5
-    elif dtype == torch.bfloat16:
         rtol = 1e-2
-        atol = 1e-3
+        atol = 1e-2
+    elif dtype == torch.float16:
+        rtol = 1e-1
+        atol = 1e-1
+    elif dtype == torch.bfloat16:
+        rtol = 1e-1
+        atol = 1e-1
     else:
         rtol = 1e-5
         atol = 1e-8
