@@ -1,15 +1,8 @@
-from typing import Optional
 import torch
 import triton
 from triton import language as tl
 
-
-def maybe_contiguous(x: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
-    return x.contiguous() if x is not None and x.stride(-1) != 1 else x
-
-
-def round_multiple(x, m):
-    return (x + m - 1) // m * m
+from flash_moe.ops.utils import ensure_contiguous
 
 
 @triton.autotune(
@@ -353,6 +346,7 @@ def _flash_router_backward(
 
 class FlashRouterFunc(torch.autograd.Function):
     @staticmethod
+    @ensure_contiguous
     def forward(ctx, router_logits, num_expert_keys, num_experts_per_tok):
         """
         Args:
@@ -364,8 +358,6 @@ class FlashRouterFunc(torch.autograd.Function):
             scores: (batch_size * seq_len, num_experts_per_tok)
             indices: (batch_size * seq_len, num_experts_per_tok)
         """
-        # Make sure that the last dimension is contiguous
-        router_logits = maybe_contiguous(router_logits)
 
         scores, indices = _flash_router_forward(
             router_logits, num_expert_keys, num_experts_per_tok
@@ -375,11 +367,10 @@ class FlashRouterFunc(torch.autograd.Function):
 
         return scores, indices
 
+    @staticmethod
+    @ensure_contiguous
     def backward(ctx, dscores, dindices):
         (indices,) = ctx.saved_tensors
-
-        # Make sure that the last dimension is contiguous
-        dscores = maybe_contiguous(dscores)
 
         drouter_logits = _flash_router_backward(dscores, indices, ctx.num_expert_keys)
 
