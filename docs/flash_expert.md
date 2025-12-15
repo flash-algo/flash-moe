@@ -1,4 +1,3 @@
-
 # Flash Expert
 
 The **flash expert** is an accelerated primitive for Mixture-of-Experts expert evaluation when routing has already been computed.
