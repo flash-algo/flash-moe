@@ -121,6 +121,8 @@ class BenchmarkResult:
     timings_ms: Sequence[float]
     flops: float
     output: Any
+    peak_mem_allocated_bytes: int
+    peak_mem_reserved_bytes: int
 
     @property
     def mean_ms(self) -> float:
@@ -138,6 +140,10 @@ class BenchmarkResult:
     def tflops(self) -> float:
         seconds = self.mean_ms / 1e3
         return self.flops / seconds / 1e12
+
+    @property
+    def peak_mem(self) -> float:
+        return self.peak_mem_allocated_bytes / (1024 ** 2)
 
     def speedup_vs(self, baseline: "BenchmarkResult") -> float:
         return baseline.mean_ms / self.mean_ms
@@ -176,21 +182,33 @@ def _run_benchmark(
 
     # Timed repeats
     timings_ms: List[float] = []
+    # Memory tracking
+    peak_allocs: List[int] = []
+    peak_resvs: List[int] = []
     output: Any = None
     for _ in range(config.repeat):
         args, kwargs = factory()
         impl.synchronize()
+
+        torch.cuda.reset_peak_memory_stats()
+        torch.cuda.synchronize()
+
         start = perf_counter()
         output = impl(*args, **kwargs)
         impl.synchronize()
         end = perf_counter()
         timings_ms.append((end - start) * 1e3)
 
+        peak_allocs.append(torch.cuda.max_memory_allocated())
+        peak_resvs.append(torch.cuda.max_memory_reserved())
+
     return BenchmarkResult(
         impl=impl,
         timings_ms=timings_ms,
         flops=flops,
         output=output,
+        peak_mem_allocated_bytes=max(peak_allocs),
+        peak_mem_reserved_bytes=max(peak_resvs),
     )
 
 
@@ -243,7 +261,9 @@ def run_benchmarks(
     # Establish baseline output
     baseline_impl = impl_list[0]
     base_args, base_kwargs = factory()
+    baseline_impl.synchronize()
     baseline_output = baseline_impl(*base_args, **base_kwargs)
+    baseline_impl.synchronize()
 
     dtype = _get_primary_dtype(baseline_output)
     if dtype == torch.float32:
@@ -293,11 +313,12 @@ def show_benchmarks(results: Sequence[BenchmarkResult]) -> None:
         "speed",
         "speedup",
         "tflops",
+        "peak_mem"
     )
     print(
-        f"\n{headers[0]:<10} {headers[1]:>10} {headers[2]:>10} {headers[3]:>10} {headers[4]:>10}"
+        f"\n{headers[0]:<10} {headers[1]:>10} {headers[2]:>10} {headers[3]:>10} {headers[4]:>10} {headers[5]:>10}"
     )
-    print("-" * 54)
+    print("-" * 66)
 
     for r in results:
         speed = r.speedup_vs(baseline)
@@ -310,5 +331,6 @@ def show_benchmarks(results: Sequence[BenchmarkResult]) -> None:
             f"{str(r.impl.backend):<10} "
             f"{dtype_str:>10} "
             f"{r.mean_ms:>10.3f} "
-            f"{speed:>10.2f} {tflops:>10.3f}"
+            f"{speed:>10.2f} {tflops:>10.3f} "
+            f"{r.peak_mem:>10.2f} "
         )
