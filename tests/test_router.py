@@ -16,27 +16,23 @@ def pytorch_router_forward(router_logits: torch.Tensor, num_keys: int, top_k: in
     return scores
 
 
-def pytorch_router_forward_backward(
-    router_logits: torch.Tensor, num_keys: int, top_k: int
-):
-    logits = router_logits.clone().detach().requires_grad_(True)
-    scores = pytorch_router_forward(logits, num_keys, top_k)
-    loss = scores.sum()
-    loss.backward()
-    return logits.grad
-
-
 def triton_router_forward(router_logits: torch.Tensor, num_keys: int, top_k: int):
     scores, _ = triton_flash_router_func(router_logits, num_keys, top_k)
     return scores
 
 
-def triton_router_forward_backward(
-    router_logits: torch.Tensor, num_keys: int, top_k: int
+def pytorch_router_backward(
+    loss: torch.Tensor,
+    logits: torch.Tensor,
 ):
-    logits = router_logits.clone().detach().requires_grad_(True)
-    scores, _ = triton_flash_router_func(logits, num_keys, top_k)
-    loss = scores.sum()
+    loss.backward()
+    return logits.grad
+
+
+def triton_router_backward(
+    loss: torch.Tensor,
+    logits: torch.Tensor,
+):
     loss.backward()
     return logits.grad
 
@@ -49,7 +45,7 @@ def make_forward_factory(
         2, num_tokens, num_keys, device=device, dtype=dtype, generator=gen
     )
 
-    def _factory():
+    def _factory(_impl: testing.Implementation):
         logits = base.clone()
         return (logits, num_keys, top_k), {}
 
@@ -64,9 +60,13 @@ def make_backward_factory(
         2, num_tokens, num_keys, device=device, dtype=dtype, generator=gen
     )
 
-    def _factory():
-        logits = base.clone()
-        return (logits, num_keys, top_k), {}
+    def _factory(impl: testing.Implementation):
+        logits = base.clone().detach().requires_grad_(True)
+        if impl.backend == testing.Backend.PYTORCH:
+            loss = pytorch_router_forward(logits, num_keys, top_k).sum()
+        elif impl.backend == testing.Backend.TRITON:
+            loss = triton_router_forward(logits, num_keys, top_k).sum()
+        return (loss, logits), {}
 
     return _factory
 
@@ -148,10 +148,10 @@ def test_router_backward_throughput(
     )
 
     impls = testing.get_impls(
-        pytorch_impl=pytorch_router_forward_backward,
-        triton_impl=triton_router_forward_backward,
+        pytorch_impl=pytorch_router_backward,
+        triton_impl=triton_router_backward,
     )
-    flops = 3.0 * 4.0 * 2 * num_tokens * num_keys * num_keys
+    flops = 2.0 * 4.0 * 2 * num_tokens * num_keys * num_keys
     config = testing.BenchmarkConfig(warmup=5, repeat=1_000)
     results = testing.run_benchmarks(
         impls,
