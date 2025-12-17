@@ -143,7 +143,7 @@ class BenchmarkResult:
 
     @property
     def peak_mem(self) -> float:
-        return self.peak_mem_allocated_bytes / (1024 ** 2)
+        return self.peak_mem_allocated_bytes / (1024**2)
 
     def speedup_vs(self, baseline: "BenchmarkResult") -> float:
         return baseline.mean_ms / self.mean_ms
@@ -151,7 +151,7 @@ class BenchmarkResult:
 
 def _run_benchmark(
     impl: Implementation,
-    factory: Callable[[], Tuple[Tuple[Any, ...], Dict[str, Any]]],
+    factory: Callable[[Implementation], Tuple[Tuple[Any, ...], Dict[str, Any]]],
     *,
     flops: float,
     config: Optional[BenchmarkConfig] = None,
@@ -175,7 +175,7 @@ def _run_benchmark(
 
     # Warmup (not timed)
     for _ in range(config.warmup):
-        args, kwargs = factory()
+        args, kwargs = factory(impl)
         impl.synchronize()
         _ = impl(*args, **kwargs)
         impl.synchronize()
@@ -187,7 +187,7 @@ def _run_benchmark(
     peak_resvs: List[int] = []
     output: Any = None
     for _ in range(config.repeat):
-        args, kwargs = factory()
+        args, kwargs = factory(impl)
         impl.synchronize()
 
         torch.cuda.reset_peak_memory_stats()
@@ -241,7 +241,7 @@ def get_impls(
 
 def run_benchmarks(
     impls: Iterable[Implementation],
-    factory: Callable[[], Tuple[Tuple[Any, ...], Dict[str, Any]]],
+    factory: Callable[[Implementation], Tuple[Tuple[Any, ...], Dict[str, Any]]],
     *,
     flops: float,
     config: Optional[BenchmarkConfig] = None,
@@ -260,7 +260,7 @@ def run_benchmarks(
 
     # Establish baseline output
     baseline_impl = impl_list[0]
-    base_args, base_kwargs = factory()
+    base_args, base_kwargs = factory(baseline_impl)
     baseline_impl.synchronize()
     baseline_output = baseline_impl(*base_args, **base_kwargs)
     baseline_impl.synchronize()
@@ -281,7 +281,7 @@ def run_benchmarks(
 
     results: List[BenchmarkResult] = []
     for impl in impl_list:
-        args, kwargs = factory()
+        args, kwargs = factory(impl)
         impl.synchronize()
         out = impl(*args, **kwargs)
         impl.synchronize()
@@ -307,14 +307,7 @@ def show_benchmarks(results: Sequence[BenchmarkResult]) -> None:
     baseline = results[0]
 
     # Header
-    headers = (
-        "backend",
-        "dtype",
-        "speed",
-        "speedup",
-        "tflops",
-        "peak_mem"
-    )
+    headers = ("backend", "dtype", "speed", "speedup", "tflops", "peak_mem")
     print(
         f"\n{headers[0]:<10} {headers[1]:>10} {headers[2]:>10} {headers[3]:>10} {headers[4]:>10} {headers[5]:>10}"
     )
