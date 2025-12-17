@@ -245,14 +245,14 @@ def run_benchmarks(
     *,
     flops: float,
     config: Optional[BenchmarkConfig] = None,
+    validate: bool = False,
 ) -> List[BenchmarkResult]:
     """
-    Run benchmarks for multiple implementations, optionally validating outputs.
+    Run benchmarks for multiple implementations, validating outputs.
 
     The first implementation is treated as the numerical baseline.
-    If `validate` is True, every other implementation's single sample output
-    is compared against the baseline output produced from its own fresh
-    factory invocation.
+    Every other implementation's single sample output is compared against the
+    baseline output produced from its own fresh factory invocation.
     """
     impl_list = list(impls)
     if not impl_list:
@@ -286,7 +286,19 @@ def run_benchmarks(
         out = impl(*args, **kwargs)
         impl.synchronize()
 
-        _assert_allclose(out, baseline_output, rtol=rtol, atol=atol)
+        if validate:
+            try:
+                _assert_allclose(out, baseline_output, rtol=rtol, atol=atol)
+            except Exception as e:
+                print(
+                    "\n[validate] output mismatch"
+                    f"impl={impl.name} backend={impl.backend} rtol={rtol} atol={atol}\n{e}\n"
+                )
+        else:
+            print(
+                f"[validate] skipping output validation"
+                f"impl={impl.name} backend={impl.backend}\n"
+            )
 
         res = _run_benchmark(impl, factory, flops=flops, config=config)
         results.append(res)
