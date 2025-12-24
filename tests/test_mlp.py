@@ -2,7 +2,8 @@ import pytest
 import torch
 
 import testing
-from flash_moe.ops.flash_mlp import triton_flash_mlp_func
+from flash_moe.ops.triton.flash_mlp import triton_flash_mlp_func
+from flash_moe.ops.cutile.flash_mlp import cutile_flash_mlp_func
 
 
 def pytorch_mlp_forward(
@@ -27,6 +28,15 @@ def triton_mlp_forward(
     return triton_flash_mlp_func(x, gate_weight, up_weight, down_weight)
 
 
+def cutile_mlp_forward(
+    x: torch.Tensor,
+    gate_weight: torch.Tensor,
+    up_weight: torch.Tensor,
+    down_weight: torch.Tensor,
+):
+    return cutile_flash_mlp_func(x, gate_weight, up_weight, down_weight)
+
+
 def pytorch_mlp_backward(
     loss: torch.Tensor,
     x: torch.Tensor,
@@ -44,6 +54,22 @@ def pytorch_mlp_backward(
 
 
 def triton_mlp_backward(
+    loss: torch.Tensor,
+    x: torch.Tensor,
+    gate_weight: torch.Tensor,
+    up_weight: torch.Tensor,
+    down_weight: torch.Tensor,
+):
+    loss.backward()
+    return (
+        x.grad,
+        gate_weight.grad,
+        up_weight.grad,
+        down_weight.grad,
+    )
+
+
+def cutile_mlp_backward(
     loss: torch.Tensor,
     x: torch.Tensor,
     gate_weight: torch.Tensor,
@@ -124,6 +150,10 @@ def make_backward_factory(
             loss = pytorch_mlp_forward(x, gate, up, down).sum()
         elif impl.backend == testing.Backend.TRITON:
             loss = triton_mlp_forward(x, gate, up, down).sum()
+        elif impl.backend == testing.Backend.CUTILE:
+            loss = cutile_mlp_forward(x, gate, up, down).sum()
+        else:
+            raise ValueError(f"Unknown backend: {impl.backend}")
 
         return (loss, x, gate, up, down), {}
 
@@ -132,7 +162,7 @@ def make_backward_factory(
 
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32],
+    [torch.float32, torch.float16, torch.bfloat16],
 )
 @pytest.mark.parametrize(
     "case",
@@ -154,9 +184,10 @@ def test_mlp_forward_throughput(dtype: torch.dtype, case: tuple[int, int, int]) 
     impls = testing.get_impls(
         pytorch_impl=pytorch_mlp_forward,
         triton_impl=triton_mlp_forward,
+        cutile_impl=cutile_mlp_forward,
     )
     flops = 6.0 * num_tokens * hidden_size * intermediate_size
-    config = testing.BenchmarkConfig(warmup=5, repeat=1_000)
+    config = testing.BenchmarkConfig(warmup=5, repeat=10)
     results = testing.run_benchmarks(
         impls,
         make_forward_factory(num_tokens, hidden_size, intermediate_size, device, dtype),
@@ -169,7 +200,7 @@ def test_mlp_forward_throughput(dtype: torch.dtype, case: tuple[int, int, int]) 
 
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32],
+    [torch.float32, torch.float16, torch.bfloat16],
 )
 @pytest.mark.parametrize(
     "case",
@@ -193,9 +224,10 @@ def test_mlp_backward_throughput(
     impls = testing.get_impls(
         pytorch_impl=pytorch_mlp_backward,
         triton_impl=triton_mlp_backward,
+        cutile_impl=cutile_mlp_backward,
     )
     flops = 2 * 6.0 * num_tokens * hidden_size * intermediate_size
-    config = testing.BenchmarkConfig(warmup=5, repeat=1_000)
+    config = testing.BenchmarkConfig(warmup=5, repeat=10)
     results = testing.run_benchmarks(
         impls,
         make_backward_factory(
