@@ -1,10 +1,3 @@
-"""
-This file incorporates code from Unsloth licensed under the Apache License, Version 2.0.
-See the original Unsloth repository at https://github.com/unslothai/unsloth.
-
-Modifications made by Jingze Shi, 2025.
-"""
-
 import functools
 import importlib
 import operator
@@ -12,27 +5,31 @@ import operator
 from typing import Callable
 
 import torch
-import triton.language as tl
 
 from packaging.version import Version
 
+try:
+    import triton.language as tl
+except ImportError:
+    tl = None
 
-def infer_device():
-    """
-    Get current device name based on available devices
-    """
-    # Works for both NVIDIA and AMD
-    if torch.cuda.is_available():
-        return "cuda"
-    # Intel XPU if available
-    elif torch.xpu.is_available():
-        return "xpu"
-    else:
-        return "cpu"
+try:
+    import cuda.tile as ct
+except ImportError:
+    ct = None
 
 
-def is_hip() -> bool:
-    return torch.version.hip is not None
+def next_power_of_2(n: int) -> int:
+    if n <= 1:
+        return 1
+    n -= 1
+    n |= n >> 1
+    n |= n >> 2
+    n |= n >> 4
+    n |= n >> 8
+    n |= n >> 16
+    n |= n >> 32
+    return n + 1
 
 
 def ensure_contiguous(fn):
@@ -57,6 +54,20 @@ def compare_version(package: str, operator: Callable, target: str):
     return operator(pkg_version, Version(target))
 
 
+def infer_device():
+    """
+    Get current device name based on available devices
+    """
+    # Works for both NVIDIA and AMD
+    if torch.cuda.is_available():
+        return "cuda"
+    # Intel XPU if available
+    elif torch.xpu.is_available():
+        return "xpu"
+    else:
+        return "cpu"
+
+
 def get_amp_custom_fwd_bwd() -> Callable:
     device = infer_device()
     if compare_version("torch", operator.ge, "2.4.0"):
@@ -76,4 +87,11 @@ torch_to_triton_dtype = {
     torch.float32: tl.float32,
     torch.float16: tl.float16,
     torch.bfloat16: tl.bfloat16,
+}
+
+
+torch_to_cutile_dtype = {
+    torch.float32: ct.float32,
+    torch.float16: ct.float16,
+    torch.bfloat16: ct.bfloat16,
 }
