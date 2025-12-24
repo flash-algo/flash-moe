@@ -22,7 +22,7 @@ __all__ = [
 class Backend(str, Enum):
     PYTORCH = "pytorch"
     TRITON = "triton"
-    CUTE = "cute"
+    CUTILE = "cutile"
 
     def __str__(self) -> str:
         return self.value
@@ -36,7 +36,7 @@ def _torch_synchronize_if_available() -> None:
 _SYNCHRONIZERS = {
     Backend.PYTORCH: _torch_synchronize_if_available,
     Backend.TRITON: _torch_synchronize_if_available,
-    Backend.CUTE: _torch_synchronize_if_available,
+    Backend.CUTILE: _torch_synchronize_if_available,
 }
 
 
@@ -216,7 +216,7 @@ def get_impls(
     *,
     pytorch_impl: Callable[..., Any],
     triton_impl: Optional[Callable[..., Any]] = None,
-    cute_impl: Optional[Callable[..., Any]] = None,
+    cutile_impl: Optional[Callable[..., Any]] = None,
 ) -> List[Implementation]:
     """
     Construct a default list of implementations for benchmarking.
@@ -233,8 +233,8 @@ def get_impls(
     if triton_impl is not None:
         impls.append(Implementation("triton", triton_impl, Backend.TRITON))
 
-    if cute_impl is not None:
-        impls.append(Implementation("cute", cute_impl, Backend.CUTE))
+    if cutile_impl is not None:
+        impls.append(Implementation("cutile", cutile_impl, Backend.CUTILE))
 
     return impls
 

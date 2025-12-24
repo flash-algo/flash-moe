@@ -150,7 +150,7 @@ def swiglu_backward(a, b, dc):
     return da.view(*ori_shape), db.view(*ori_shape)
 
 
-class FLashSwiGLUFunc(torch.autograd.Function):
+class TritonSwiGLUFunc(torch.autograd.Function):
     @staticmethod
     @ensure_contiguous
     def forward(ctx, a, b):
@@ -162,8 +162,8 @@ class FLashSwiGLUFunc(torch.autograd.Function):
     @ensure_contiguous
     def backward(ctx, dc):
         a, b = ctx.saved_tensors
-        a, b = swiglu_backward(a, b, dc)
-        return a, b
+        da, db = swiglu_backward(a, b, dc)
+        return da, db
 
 
 def triton_flash_mlp_func(
@@ -173,7 +173,7 @@ def triton_flash_mlp_func(
     down_weight: torch.Tensor,
 ) -> torch.Tensor:
     return torch.matmul(
-        FLashSwiGLUFunc.apply(
+        TritonSwiGLUFunc.apply(
             torch.matmul(x, gate_weight.t()),
             torch.matmul(x, up_weight.t()),
         ),
