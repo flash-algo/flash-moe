@@ -17,19 +17,14 @@ def _sigmoid(x):
 
 @ct.kernel
 def _swiglu_forward_kernel(a, b, c, TILE_N: ConstInt):
-    bid = ct.bid(0)
-    n_cols = a.shape[1]
-    n_tiles_n = ct.cdiv(n_cols, TILE_N)
-    bid_m = bid // n_tiles_n
-    bid_n = bid % n_tiles_n
-    col_start = bid_n * TILE_N
+    bid_m = ct.bid(0)
 
     zero_pad = ct.PaddingMode.ZERO
     # sigmoid requires type float32
-    ta = ct.load(a, (bid_m, col_start), (1, TILE_N), padding_mode=zero_pad).astype(
+    ta = ct.load(a, (bid_m, 0), (1, TILE_N), padding_mode=zero_pad).astype(
         ct.float32
     )
-    tb = ct.load(b, (bid_m, col_start), (1, TILE_N), padding_mode=zero_pad).astype(
+    tb = ct.load(b, (bid_m, 0), (1, TILE_N), padding_mode=zero_pad).astype(
         ct.float32
     )
 
@@ -37,27 +32,22 @@ def _swiglu_forward_kernel(a, b, c, TILE_N: ConstInt):
     silu = ct.mul(ta, sigmoid, flush_to_zero=True)
     tc = ct.mul(silu, tb, flush_to_zero=True)
 
-    ct.store(c, (bid_m, col_start), tc.astype(c.dtype))
+    ct.store(c, (bid_m, 0), tc.astype(c.dtype))
 
 
 @ct.kernel
 def _swiglu_backward_kernel(dc, a, b, da, db, TILE_N: ConstInt):
-    bid = ct.bid(0)
-    n_cols = a.shape[1]
-    n_tiles_n = ct.cdiv(n_cols, TILE_N)
-    bid_m = bid // n_tiles_n
-    bid_n = bid % n_tiles_n
-    col_start = bid_n * TILE_N
+    bid_m = ct.bid(0)
 
     zero_pad = ct.PaddingMode.ZERO
     # sigmoid requires type float32
-    tdc = ct.load(dc, (bid_m, col_start), (1, TILE_N), padding_mode=zero_pad).astype(
+    tdc = ct.load(dc, (bid_m, 0), (1, TILE_N), padding_mode=zero_pad).astype(
         ct.float32
     )
-    ta = ct.load(a, (bid_m, col_start), (1, TILE_N), padding_mode=zero_pad).astype(
+    ta = ct.load(a, (bid_m, 0), (1, TILE_N), padding_mode=zero_pad).astype(
         ct.float32
     )
-    tb = ct.load(b, (bid_m, col_start), (1, TILE_N), padding_mode=zero_pad).astype(
+    tb = ct.load(b, (bid_m, 0), (1, TILE_N), padding_mode=zero_pad).astype(
         ct.float32
     )
 
@@ -72,8 +62,8 @@ def _swiglu_backward_kernel(dc, a, b, da, db, TILE_N: ConstInt):
     )
     tda = ct.mul(ct.mul(tdc, term, flush_to_zero=True), tb, flush_to_zero=True)
 
-    ct.store(da, (bid_m, col_start), tda.astype(da.dtype))
-    ct.store(db, (bid_m, col_start), tdb.astype(db.dtype))
+    ct.store(da, (bid_m, 0), tda.astype(da.dtype))
+    ct.store(db, (bid_m, 0), tdb.astype(db.dtype))
 
 
 def swiglu_forward(
@@ -86,9 +76,8 @@ def swiglu_forward(
     b = b.reshape(-1, n_cols).contiguous()
     c = torch.empty_like(a)
 
-    tile_n = 1024 if n_cols >= 1024 else next_power_of_2(n_cols)
-    n_tiles_n = (n_cols + tile_n - 1) // tile_n
-    grid = (a.shape[0] * n_tiles_n,)
+    tile_n = next_power_of_2(n_cols)
+    grid = (a.shape[0],)
     ct.launch(
         torch.cuda.current_stream(),
         grid,
@@ -109,9 +98,8 @@ def swiglu_backward(
     da = torch.empty_like(a)
     db = torch.empty_like(b)
 
-    tile_n = 1024 if n_cols >= 1024 else next_power_of_2(n_cols)
-    n_tiles_n = (n_cols + tile_n - 1) // tile_n
-    grid = (dc.shape[0] * n_tiles_n,)
+    tile_n = next_power_of_2(n_cols)
+    grid = (dc.shape[0],)
     ct.launch(
         torch.cuda.current_stream(),
         grid,
