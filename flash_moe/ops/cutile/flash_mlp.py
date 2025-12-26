@@ -21,12 +21,8 @@ def _swiglu_forward_kernel(a, b, c, TILE_N: ConstInt):
 
     zero_pad = ct.PaddingMode.ZERO
     # sigmoid requires type float32
-    ta = ct.load(a, (bid_m, 0), (1, TILE_N), padding_mode=zero_pad).astype(
-        ct.float32
-    )
-    tb = ct.load(b, (bid_m, 0), (1, TILE_N), padding_mode=zero_pad).astype(
-        ct.float32
-    )
+    ta = ct.load(a, (bid_m, 0), (1, TILE_N), padding_mode=zero_pad).astype(ct.float32)
+    tb = ct.load(b, (bid_m, 0), (1, TILE_N), padding_mode=zero_pad).astype(ct.float32)
 
     sigmoid = _sigmoid(ta)
     silu = ct.mul(ta, sigmoid, flush_to_zero=True)
@@ -41,15 +37,9 @@ def _swiglu_backward_kernel(dc, a, b, da, db, TILE_N: ConstInt):
 
     zero_pad = ct.PaddingMode.ZERO
     # sigmoid requires type float32
-    tdc = ct.load(dc, (bid_m, 0), (1, TILE_N), padding_mode=zero_pad).astype(
-        ct.float32
-    )
-    ta = ct.load(a, (bid_m, 0), (1, TILE_N), padding_mode=zero_pad).astype(
-        ct.float32
-    )
-    tb = ct.load(b, (bid_m, 0), (1, TILE_N), padding_mode=zero_pad).astype(
-        ct.float32
-    )
+    tdc = ct.load(dc, (bid_m, 0), (1, TILE_N), padding_mode=zero_pad).astype(ct.float32)
+    ta = ct.load(a, (bid_m, 0), (1, TILE_N), padding_mode=zero_pad).astype(ct.float32)
+    tb = ct.load(b, (bid_m, 0), (1, TILE_N), padding_mode=zero_pad).astype(ct.float32)
 
     # recomputation to save memory
     sigmoid = _sigmoid(ta)
