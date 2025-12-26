@@ -95,16 +95,16 @@ def make_forward_factory(
     gen = torch.Generator(device=device).manual_seed(42)
     hidden_states = torch.randn(
         num_tokens, hidden_size, device=device, dtype=dtype, generator=gen
-    )
+    ).normal_(0, 0.5)
     gate_weight = torch.randn(
         intermediate_size, hidden_size, device=device, dtype=dtype, generator=gen
-    )
+    ).normal_(0, 0.1)
     up_weight = torch.randn(
         intermediate_size, hidden_size, device=device, dtype=dtype, generator=gen
-    )
+    ).normal_(0, 0.1)
     down_weight = torch.randn(
         hidden_size, intermediate_size, device=device, dtype=dtype, generator=gen
-    )
+    ).normal_(0, 0.1)
 
     def _factory(_impl: testing.Implementation):
         args = (
@@ -129,16 +129,16 @@ def make_backward_factory(
     gen = torch.Generator(device=device).manual_seed(42)
     hidden_states = torch.randn(
         num_tokens, hidden_size, device=device, dtype=dtype, generator=gen
-    )
+    ).normal_(0, 0.5)
     gate_weight = torch.randn(
         intermediate_size, hidden_size, device=device, dtype=dtype, generator=gen
-    )
+    ).normal_(0, 0.1)
     up_weight = torch.randn(
         intermediate_size, hidden_size, device=device, dtype=dtype, generator=gen
-    )
+    ).normal_(0, 0.1)
     down_weight = torch.randn(
         hidden_size, intermediate_size, device=device, dtype=dtype, generator=gen
-    )
+    ).normal_(0, 0.1)
 
     def _factory(impl: testing.Implementation):
         x = hidden_states.clone().detach().requires_grad_(True)
@@ -193,6 +193,7 @@ def test_mlp_forward_throughput(dtype: torch.dtype, case: tuple[int, int, int]) 
         make_forward_factory(num_tokens, hidden_size, intermediate_size, device, dtype),
         flops=flops,
         config=config,
+        validate=True,
     )
 
     testing.show_benchmarks(results)
@@ -235,6 +236,7 @@ def test_mlp_backward_throughput(
         ),
         flops=flops,
         config=config,
+        validate=True,
     )
 
     testing.show_benchmarks(results)
