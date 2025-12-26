@@ -55,6 +55,7 @@ def _fwd_kernel(
     stride_c_m,
     stride_c_n,
     num_token_replicas: int,
+    num_valid_tokens: int,
     M: int,
     N: int,
     K: int,
@@ -141,7 +142,7 @@ def _fwd_kernel(
 
     # Store result using scatter
     c_ptrs = C_ptr + token_ids[:, None] * stride_c_m + offs_n[None, :] * stride_c_n
-    c_mask = (token_ids[:, None] < M) & (offs_n[None, :] < N)
+    c_mask = (token_ids[:, None] < num_valid_tokens) & (offs_n[None, :] < N)
     tl.store(c_ptrs, accumulator.to(C_ptr.dtype.element_ty), mask=c_mask)
 
 
@@ -190,6 +191,7 @@ def fwd_kernel(
 
     topk_weights_flat = topk_weights.view(-1)
     C_flat = C.view(-1, C.shape[-1])
+    num_valid_tokens = C_flat.shape[0]
 
     grid = (triton.cdiv(M, tile_m) * triton.cdiv(N, tile_n),)
 
@@ -208,6 +210,7 @@ def fwd_kernel(
         C_flat.stride(0),
         C_flat.stride(1),
         num_token_replicas,
+        num_valid_tokens,
         M,
         N,
         K,
@@ -378,8 +381,8 @@ def gshared_forward(
 
 
 class TritonGSharedFunc(torch.autograd.Function):
-    @ensure_contiguous
     @staticmethod
+    @ensure_contiguous
     def forward(
         ctx,
         hidden_states: torch.Tensor,
