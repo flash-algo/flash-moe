@@ -214,7 +214,7 @@ def _run_benchmark(
 
 def get_impls(
     *,
-    pytorch_impl: Callable[..., Any],
+    pytorch_impl: Optional[Callable[..., Any]] = None,
     triton_impl: Optional[Callable[..., Any]] = None,
     cutile_impl: Optional[Callable[..., Any]] = None,
 ) -> List[Implementation]:
@@ -226,9 +226,10 @@ def get_impls(
     is provided.
     """
 
-    impls: List[Implementation] = [
-        Implementation("pytorch", pytorch_impl, Backend.PYTORCH),
-    ]
+    impls: List[Implementation] = []
+
+    if pytorch_impl is not None:
+        impls.append(Implementation("pytorch", pytorch_impl, Backend.PYTORCH))
 
     if triton_impl is not None:
         impls.append(Implementation("triton", triton_impl, Backend.TRITON))
