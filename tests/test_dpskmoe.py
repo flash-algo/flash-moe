@@ -2,17 +2,22 @@ import pytest
 import torch
 
 import testing
-from flash_moe.ops.triton.gshared import triton_gshared_func
-from flash_moe.ops.cutile.gshared import cutile_gshared_func
+from flash_moe.ops.triton.dpskmoe import triton_dpskmoe_func
+from flash_moe.ops.cutile.dpskmoe import cutile_dpskmoe_func
+from flash_moe.ops.triton.flash_mlp import triton_flash_mlp_func
+from flash_moe.ops.cutile.flash_mlp import cutile_flash_mlp_func
 
 
-def pytorch_gshared_forward(
+def pytorch_dpskmoe_forward(
     hidden_states: torch.Tensor,
     gate_proj: torch.Tensor,
     up_proj: torch.Tensor,
     down_proj: torch.Tensor,
     topk_weights: torch.Tensor,
     topk_ids: torch.Tensor,
+    shared_gate_proj: torch.Tensor,
+    shared_up_proj: torch.Tensor,
+    shared_down_proj: torch.Tensor,
 ) -> torch.Tensor:
     num_experts = gate_proj.shape[0]
     final_hidden_states = torch.zeros_like(hidden_states)
@@ -44,19 +49,29 @@ def pytorch_gshared_forward(
             matched_token_ids,
             weighted_output.to(hidden_states.dtype),
         )
+    shared_gate_output = hidden_states @ shared_gate_proj.T
+    shared_up_output = hidden_states @ shared_up_proj.T
+    shared_swiglu_output = (
+        torch.nn.functional.silu(shared_gate_output) * shared_up_output
+    )
+    shared_expert_output = shared_swiglu_output @ shared_down_proj.T
+    final_hidden_states += shared_expert_output
 
     return final_hidden_states
 
 
-def triton_gshared_forward(
+def triton_dpskmoe_forward(
     hidden_states: torch.Tensor,
     gate_proj: torch.Tensor,
     up_proj: torch.Tensor,
     down_proj: torch.Tensor,
     topk_weights: torch.Tensor,
     topk_ids: torch.Tensor,
+    shared_gate_proj: torch.Tensor,
+    shared_up_proj: torch.Tensor,
+    shared_down_proj: torch.Tensor,
 ) -> torch.Tensor:
-    return triton_gshared_func(
+    expert_output = triton_dpskmoe_func(
         hidden_states,
         gate_proj,
         up_proj,
@@ -64,17 +79,27 @@ def triton_gshared_forward(
         topk_weights,
         topk_ids,
     )
+    shared_expert_output = triton_flash_mlp_func(
+        hidden_states,
+        shared_gate_proj,
+        shared_up_proj,
+        shared_down_proj,
+    )
+    return expert_output + shared_expert_output
 
 
-def cutile_gshared_forward(
+def cutile_dpskmoe_forward(
     hidden_states: torch.Tensor,
     gate_proj: torch.Tensor,
     up_proj: torch.Tensor,
     down_proj: torch.Tensor,
     topk_weights: torch.Tensor,
     topk_ids: torch.Tensor,
+    shared_gate_proj: torch.Tensor,
+    shared_up_proj: torch.Tensor,
+    shared_down_proj: torch.Tensor,
 ) -> torch.Tensor:
-    return cutile_gshared_func(
+    expert_output = cutile_dpskmoe_func(
         hidden_states,
         gate_proj,
         up_proj,
@@ -82,9 +107,16 @@ def cutile_gshared_forward(
         topk_weights,
         topk_ids,
     )
+    shared_expert_output = cutile_flash_mlp_func(
+        hidden_states,
+        shared_gate_proj,
+        shared_up_proj,
+        shared_down_proj,
+    )
+    return expert_output + shared_expert_output
 
 
-def pytorch_gshared_backward(
+def pytorch_dpskmoe_backward(
     loss: torch.Tensor,
     hidden_states: torch.Tensor,
     gate_proj: torch.Tensor,
@@ -92,6 +124,9 @@ def pytorch_gshared_backward(
     down_proj: torch.Tensor,
     topk_weights: torch.Tensor,
     topk_ids: torch.Tensor,
+    shared_gate_proj: torch.Tensor,
+    shared_up_proj: torch.Tensor,
+    shared_down_proj: torch.Tensor,
 ):
     loss.backward()
     return (
@@ -100,10 +135,13 @@ def pytorch_gshared_backward(
         up_proj.grad,
         down_proj.grad,
         topk_weights.grad,
+        shared_gate_proj.grad,
+        shared_up_proj.grad,
+        shared_down_proj.grad,
     )
 
 
-def triton_gshared_backward(
+def triton_dpskmoe_backward(
     loss: torch.Tensor,
     hidden_states: torch.Tensor,
     gate_proj: torch.Tensor,
@@ -111,6 +149,9 @@ def triton_gshared_backward(
     down_proj: torch.Tensor,
     topk_weights: torch.Tensor,
     topk_ids: torch.Tensor,
+    shared_gate_proj: torch.Tensor,
+    shared_up_proj: torch.Tensor,
+    shared_down_proj: torch.Tensor,
 ):
     loss.backward()
     return (
@@ -119,10 +160,13 @@ def triton_gshared_backward(
         up_proj.grad,
         down_proj.grad,
         topk_weights.grad,
+        shared_gate_proj.grad,
+        shared_up_proj.grad,
+        shared_down_proj.grad,
     )
 
 
-def cutile_gshared_backward(
+def cutile_dpskmoe_backward(
     loss: torch.Tensor,
     hidden_states: torch.Tensor,
     gate_proj: torch.Tensor,
@@ -130,6 +174,9 @@ def cutile_gshared_backward(
     down_proj: torch.Tensor,
     topk_weights: torch.Tensor,
     topk_ids: torch.Tensor,
+    shared_gate_proj: torch.Tensor,
+    shared_up_proj: torch.Tensor,
+    shared_down_proj: torch.Tensor,
 ):
     loss.backward()
     return (
@@ -138,6 +185,9 @@ def cutile_gshared_backward(
         up_proj.grad,
         down_proj.grad,
         topk_weights.grad,
+        shared_gate_proj.grad,
+        shared_up_proj.grad,
+        shared_down_proj.grad,
     )
 
 
@@ -146,6 +196,7 @@ def make_forward_factory(
     hidden_size: int,
     intermediate_size: int,
     num_experts: int,
+    shared_intermediate_size: int,
     topk: int,
     device: torch.device,
     dtype: torch.dtype,
@@ -178,6 +229,24 @@ def make_forward_factory(
     topk_weights = torch.softmax(
         torch.randn(num_tokens, topk, device=device), dim=-1
     ).to(dtype)
+    shared_gate_proj = torch.randn(
+        (shared_intermediate_size, hidden_size),
+        device=device,
+        dtype=dtype,
+        generator=gen,
+    ).normal_(0, 0.1)
+    shared_up_proj = torch.randn(
+        (shared_intermediate_size, hidden_size),
+        device=device,
+        dtype=dtype,
+        generator=gen,
+    ).normal_(0, 0.1)
+    shared_down_proj = torch.randn(
+        (hidden_size, shared_intermediate_size),
+        device=device,
+        dtype=dtype,
+        generator=gen,
+    ).normal_(0, 0.1)
 
     def factory(_impl: testing.Implementation):
         args = (
@@ -187,6 +256,9 @@ def make_forward_factory(
             down_proj.clone(),
             topk_weights.clone(),
             topk_ids.clone(),
+            shared_gate_proj.clone(),
+            shared_up_proj.clone(),
+            shared_down_proj.clone(),
         )
         kwargs = {}
         return args, kwargs
@@ -199,6 +271,7 @@ def make_backward_factory(
     hidden_size: int,
     intermediate_size: int,
     num_experts: int,
+    shared_intermediate_size: int,
     topk: int,
     device: torch.device,
     dtype: torch.dtype,
@@ -225,29 +298,78 @@ def make_backward_factory(
         dtype=dtype,
         generator=gen,
     ).normal_(0, 0.1)
-
     topk_ids = torch.stack(
         [torch.randperm(num_experts, device=device)[:topk] for _ in range(num_tokens)]
     )
     topk_weights = torch.softmax(
         torch.randn(num_tokens, topk, device=device), dim=-1
     ).to(dtype)
+    shared_gate_proj = torch.randn(
+        (shared_intermediate_size, hidden_size),
+        device=device,
+        dtype=dtype,
+        generator=gen,
+    ).normal_(0, 0.1)
+    shared_up_proj = torch.randn(
+        (shared_intermediate_size, hidden_size),
+        device=device,
+        dtype=dtype,
+        generator=gen,
+    ).normal_(0, 0.1)
+    shared_down_proj = torch.randn(
+        (hidden_size, shared_intermediate_size),
+        device=device,
+        dtype=dtype,
+        generator=gen,
+    ).normal_(0, 0.1)
 
     def factory(impl: testing.Implementation):
         hidden = hidden_states.clone().detach().requires_grad_(True)
         gate = gate_proj.clone().detach().requires_grad_(True)
         up = up_proj.clone().detach().requires_grad_(True)
         down = down_proj.clone().detach().requires_grad_(True)
-
         weights = topk_weights.clone().detach().requires_grad_(True)
         ids = topk_ids.clone().detach()
+        shared_gate = shared_gate_proj.clone().detach().requires_grad_(True)
+        shared_up = shared_up_proj.clone().detach().requires_grad_(True)
+        shared_down = shared_down_proj.clone().detach().requires_grad_(True)
 
         if impl.backend == testing.Backend.PYTORCH:
-            loss = pytorch_gshared_forward(hidden, gate, up, down, weights, ids).sum()
+            loss = pytorch_dpskmoe_forward(
+                hidden,
+                gate,
+                up,
+                down,
+                weights,
+                ids,
+                shared_gate,
+                shared_up,
+                shared_down,
+            ).sum()
         elif impl.backend == testing.Backend.TRITON:
-            loss = triton_gshared_forward(hidden, gate, up, down, weights, ids).sum()
+            loss = triton_dpskmoe_forward(
+                hidden,
+                gate,
+                up,
+                down,
+                weights,
+                ids,
+                shared_gate,
+                shared_up,
+                shared_down,
+            ).sum()
         elif impl.backend == testing.Backend.CUTILE:
-            loss = cutile_gshared_forward(hidden, gate, up, down, weights, ids).sum()
+            loss = cutile_dpskmoe_forward(
+                hidden,
+                gate,
+                up,
+                down,
+                weights,
+                ids,
+                shared_gate,
+                shared_up,
+                shared_down,
+            ).sum()
         else:
             raise ValueError(f"Unknown backend: {impl.backend}")
 
@@ -263,30 +385,44 @@ def make_backward_factory(
 @pytest.mark.parametrize(
     "case",
     [
-        # num_tokens, hidden_size, intermediate_size, num_experts, topk
-        (4096, 1024, 4096, 16, 2),
-        (4096, 1024, 4096, 16, 4),
-        (4096, 1024, 4096, 16, 8),
-        (4096, 1024, 4096, 16, 16),
+        # num_tokens, hidden_size, intermediate_size, num_experts, shared_intermediate_size, topk
+        (4096, 1024, 2048, 32, 1024, 4),
+        (4096, 1024, 2048, 32, 1024, 8),
+        (4096, 1024, 2048, 32, 1024, 16),
+        (4096, 1024, 2048, 32, 1024, 32),
     ],
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
-def test_gshared_forward_throughput(
-    dtype: torch.dtype, case: tuple[int, int, int, int, int]
+def test_dpskmoe_forward_throughput(
+    dtype: torch.dtype, case: tuple[int, int, int, int, int, int]
 ) -> None:
-    num_tokens, hidden_size, intermediate_size, num_experts, topk = case
+    (
+        num_tokens,
+        hidden_size,
+        intermediate_size,
+        num_experts,
+        shared_intermediate_size,
+        topk,
+    ) = case
     device = torch.device("cuda")
 
     print(
-        f"[gshared forward] num_tokens={num_tokens}, hidden_size={hidden_size}, intermediate_size={intermediate_size}, num_experts={num_experts}, topk={topk}"
+        f"[dpskmoe forward] num_tokens={num_tokens}, hidden_size={hidden_size}, intermediate_size={intermediate_size}, num_experts={num_experts}, shared_intermediate_size={shared_intermediate_size}, topk={topk}"
     )
 
     impls = testing.get_impls(
-        pytorch_impl=pytorch_gshared_forward,
-        triton_impl=triton_gshared_forward,
-        cutile_impl=cutile_gshared_forward,
+        pytorch_impl=pytorch_dpskmoe_forward,
+        triton_impl=triton_dpskmoe_forward,
+        cutile_impl=cutile_dpskmoe_forward,
     )
-    flops = 6.0 * num_tokens * hidden_size * intermediate_size * topk
+    flops = (
+        6.0
+        * num_tokens
+        * (
+            hidden_size * intermediate_size * topk
+            + hidden_size * shared_intermediate_size
+        )
+    )
     config = testing.BenchmarkConfig(warmup=5, repeat=10)
     results = testing.run_benchmarks(
         impls,
@@ -295,6 +431,7 @@ def test_gshared_forward_throughput(
             hidden_size,
             intermediate_size,
             num_experts,
+            shared_intermediate_size,
             topk,
             device,
             dtype,
@@ -314,28 +451,43 @@ def test_gshared_forward_throughput(
 @pytest.mark.parametrize(
     "case",
     [
-        # num_tokens, hidden_size, intermediate_size, num_experts, topk
-        (4096, 1024, 4096, 16, 2),
+        # num_tokens, hidden_size, intermediate_size, num_experts, shared_intermediate_size, topk
+        (4096, 1024, 4096, 16, 1024, 2),
     ],
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
-@pytest.mark.skipif(True, reason="Cutile gshared backward not implemented correctly")
-def test_gshared_backward_throughput(
-    dtype: torch.dtype, case: tuple[int, int, int, int, int]
+@pytest.mark.skipif(True, reason="Cutile dpskmoe backward not implemented correctly")
+def test_dpskmoe_backward_throughput(
+    dtype: torch.dtype, case: tuple[int, int, int, int, int, int]
 ) -> None:
-    num_tokens, hidden_size, intermediate_size, num_experts, topk = case
+    (
+        num_tokens,
+        hidden_size,
+        intermediate_size,
+        num_experts,
+        shared_intermediate_size,
+        topk,
+    ) = case
     device = torch.device("cuda")
 
     print(
-        f"[gshared backward] num_tokens={num_tokens}, hidden_size={hidden_size}, intermediate_size={intermediate_size}, num_experts={num_experts}, topk={topk}"
+        f"[dpskmoe backward] num_tokens={num_tokens}, hidden_size={hidden_size}, intermediate_size={intermediate_size}, num_experts={num_experts}, shared_intermediate_size={shared_intermediate_size}, topk={topk}"
     )
 
     impls = testing.get_impls(
-        pytorch_impl=pytorch_gshared_backward,
-        triton_impl=triton_gshared_backward,
-        cutile_impl=cutile_gshared_backward,
+        pytorch_impl=pytorch_dpskmoe_backward,
+        triton_impl=triton_dpskmoe_backward,
+        cutile_impl=cutile_dpskmoe_backward,
     )
-    flops = 2.0 * 6.0 * num_tokens * hidden_size * intermediate_size * topk
+    flops = (
+        2.0
+        * 6.0
+        * num_tokens
+        * (
+            hidden_size * intermediate_size * topk
+            + hidden_size * shared_intermediate_size
+        )
+    )
     config = testing.BenchmarkConfig(warmup=5, repeat=10)
     results = testing.run_benchmarks(
         impls,
