@@ -265,6 +265,8 @@ def make_backward_factory(
     [
         # num_tokens, hidden_size, intermediate_size, num_experts, topk
         (4096, 1024, 4096, 16, 2),
+        (4096, 1024, 4096, 16, 4),
+        (4096, 1024, 4096, 16, 8),
         (4096, 1024, 4096, 16, 16),
     ],
 )
