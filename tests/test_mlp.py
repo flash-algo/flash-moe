@@ -162,14 +162,16 @@ def make_backward_factory(
 
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.float16, torch.bfloat16],
+    [torch.bfloat16],
 )
 @pytest.mark.parametrize(
     "case",
     [
         # (num_tokens, hidden_size, intermediate_size)
-        (4096, 1024, 4096),
+        (1024, 4096, 16384),
+        (2048, 4096, 16384),
         (4096, 4096, 16384),
+        (8192, 4096, 16384),
     ],
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
@@ -201,14 +203,16 @@ def test_mlp_forward_throughput(dtype: torch.dtype, case: tuple[int, int, int]) 
 
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.float16, torch.bfloat16],
+    [torch.bfloat16],
 )
 @pytest.mark.parametrize(
     "case",
     [
         # (num_tokens, hidden_size, intermediate_size)
-        (4096, 1024, 4096),
+        (1024, 4096, 16384),
+        (2048, 4096, 16384),
         (4096, 4096, 16384),
+        (8192, 4096, 16384),
     ],
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
