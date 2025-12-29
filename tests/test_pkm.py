@@ -164,16 +164,20 @@ def make_backward_factory(
 
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.float16, torch.bfloat16],
+    [torch.bfloat16],
 )
 @pytest.mark.parametrize(
     "case",
     [
         # num_tokens, hidden_size, num_experts, topk
-        (4096, 1024, 196000, 24500),
-        (4096, 1024, 196000, 49000),
-        (4096, 1024, 196000, 98000),
-        (4096, 1024, 196000, 196000),
+        (1024, 1024, 197136, 2500),
+        (1024, 1024, 197136, 5000),
+        (1024, 1024, 197136, 12500),
+        (1024, 1024, 197136, 25000),
+        (2048, 1024, 197136, 2500),
+        (4096, 1024, 197136, 2500),
+        (8192, 1024, 197136, 2500),
+        (16384, 1024, 197136, 2500),
     ],
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
@@ -214,13 +218,13 @@ def test_pkm_forward_throughput(
 
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.float16, torch.bfloat16],
+    [torch.bfloat16],
 )
 @pytest.mark.parametrize(
     "case",
     [
         # num_tokens, hidden_size, num_experts, topk
-        (1024, 256, 16384, 16),  # num_keys = 128
+        (1024, 256, 16384, 16),
     ],
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")

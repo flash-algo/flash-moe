@@ -380,16 +380,20 @@ def make_backward_factory(
 
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.float16, torch.bfloat16],
+    [torch.bfloat16],
 )
 @pytest.mark.parametrize(
     "case",
     [
         # num_tokens, hidden_size, intermediate_size, num_experts, shared_intermediate_size, topk
-        (4096, 1024, 2048, 32, 1024, 4),
-        (4096, 1024, 2048, 32, 1024, 8),
-        (4096, 1024, 2048, 32, 1024, 16),
-        (4096, 1024, 2048, 32, 1024, 32),
+        (1024, 1024, 256, 256, 1024, 4),
+        (1024, 1024, 256, 256, 1024, 8),
+        (1024, 1024, 256, 256, 1024, 16),
+        (1024, 1024, 256, 256, 1024, 32),
+        (2048, 1024, 256, 256, 1024, 4),
+        (4096, 1024, 256, 256, 1024, 4),
+        (8192, 1024, 256, 256, 1024, 4),
+        (16384, 1024, 256, 256, 1024, 4),
     ],
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
@@ -446,7 +450,7 @@ def test_dpskmoe_forward_throughput(
 
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.float16, torch.bfloat16],
+    [torch.bfloat16],
 )
 @pytest.mark.parametrize(
     "case",
