@@ -258,16 +258,20 @@ def make_backward_factory(
 
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.float16, torch.bfloat16],
+    [torch.bfloat16],
 )
 @pytest.mark.parametrize(
     "case",
     [
         # num_tokens, hidden_size, intermediate_size, num_experts, topk
-        (4096, 1024, 4096, 16, 2),
-        (4096, 1024, 4096, 16, 4),
-        (4096, 1024, 4096, 16, 8),
-        (4096, 1024, 4096, 16, 16),
+        (1024, 1024, 512, 128, 2),
+        (1024, 1024, 512, 128, 4),
+        (1024, 1024, 512, 128, 8),
+        (1024, 1024, 512, 128, 16),
+        (2048, 1024, 512, 128, 2),
+        (4096, 1024, 512, 128, 2),
+        (8192, 1024, 512, 128, 2),
+        (16384, 1024, 512, 128, 2),
     ],
 )
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
@@ -309,7 +313,7 @@ def test_gshared_forward_throughput(
 
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float32, torch.float16, torch.bfloat16],
+    [torch.bfloat16],
 )
 @pytest.mark.parametrize(
     "case",
