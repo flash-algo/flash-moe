@@ -1,6 +1,11 @@
 # FlashMoE
 
+<div align="center">
+
+
 **English** | [简体中文](./README_zh.md)
+
+</div>
 
 FlashMoE is a high-performance Mixture-of-Experts implementation focused on **fine-grained experts**.
 
@@ -12,6 +17,13 @@ However, existing MoE designs often face a trade-off:
 
 - **Coarse-grained experts** are easier to utilize efficiently, but the number of experts is limited, and under a fixed compute budget they may waste compute or lose information.
 - **Fine-grained experts** can scale the number of experts dramatically, but are often bottlenecked by routing quality and memory bandwidth, making stable end-to-end gains hard.
+
+FlashMoE aims to strike a better balance between the two:
+
+- Represent **fine-grained experts** as compact weight tables.
+- Use **Cartesian-product routing** to efficiently explore a huge expert space.
+- Employ **expert-centric scheduling** to improve memory locality and throughput.
+- Use a **hybrid design**: a shared dense MLP is parallelly added to the fine-grained experts obtained via routing.
 
 
 ## Key Features
