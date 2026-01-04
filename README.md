@@ -22,8 +22,8 @@ FlashMoE aims to strike a better balance between the two:
 
 - Represent **fine-grained experts** as compact weight tables.
 - Use **Cartesian-product routing** to efficiently explore a huge expert space.
-- Employ **expert-centric scheduling** to improve memory locality and throughput.
-- Use a **hybrid design**: a shared dense MLP is parallelly added to the fine-grained experts obtained via routing.
+- Use **expert-centric scheduling** to improve memory locality and throughput.
+- Use **hybrid design**: a shared dense MLP is parallelly added to the fine-grained experts obtained via routing.
 
 
 ## Key Features
