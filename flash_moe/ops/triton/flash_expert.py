@@ -12,15 +12,12 @@ def silu(x):
 
 @triton.autotune(
     configs=[
-        triton.Config({"BLOCK_M": 32, "BLOCK_N": 64}, num_warps=4, num_stages=4),
-        triton.Config({"BLOCK_M": 32, "BLOCK_N": 128}, num_warps=4, num_stages=4),
-        triton.Config({"BLOCK_M": 32, "BLOCK_N": 256}, num_warps=4, num_stages=4),
-        triton.Config({"BLOCK_M": 64, "BLOCK_N": 64}, num_warps=4, num_stages=4),
-        triton.Config({"BLOCK_M": 64, "BLOCK_N": 128}, num_warps=4, num_stages=4),
-        triton.Config({"BLOCK_M": 64, "BLOCK_N": 256}, num_warps=4, num_stages=4),
-        triton.Config({"BLOCK_M": 128, "BLOCK_N": 64}, num_warps=8, num_stages=4),
-        triton.Config({"BLOCK_M": 128, "BLOCK_N": 128}, num_warps=8, num_stages=4),
-        triton.Config({"BLOCK_M": 128, "BLOCK_N": 256}, num_warps=8, num_stages=4),
+        triton.Config({"BLOCK_M": 64, "BLOCK_N": 64}, num_warps=4, num_stages=2),
+        triton.Config({"BLOCK_M": 64, "BLOCK_N": 128}, num_warps=4, num_stages=2),
+        triton.Config({"BLOCK_M": 64, "BLOCK_N": 256}, num_warps=4, num_stages=2),
+        triton.Config({"BLOCK_M": 128, "BLOCK_N": 64}, num_warps=4, num_stages=2),
+        triton.Config({"BLOCK_M": 128, "BLOCK_N": 128}, num_warps=4, num_stages=2),
+        triton.Config({"BLOCK_M": 128, "BLOCK_N": 256}, num_warps=4, num_stages=2),
     ],
     key=["hidden_size"],
 )
@@ -119,15 +116,12 @@ def _fwd_scores_kernel(
 
 @triton.autotune(
     configs=[
-        triton.Config({"BLOCK_M": 32, "BLOCK_N": 64}, num_warps=4, num_stages=4),
-        triton.Config({"BLOCK_M": 32, "BLOCK_N": 128}, num_warps=4, num_stages=4),
-        triton.Config({"BLOCK_M": 32, "BLOCK_N": 256}, num_warps=4, num_stages=4),
-        triton.Config({"BLOCK_M": 64, "BLOCK_N": 64}, num_warps=4, num_stages=4),
-        triton.Config({"BLOCK_M": 64, "BLOCK_N": 128}, num_warps=4, num_stages=4),
-        triton.Config({"BLOCK_M": 64, "BLOCK_N": 256}, num_warps=4, num_stages=4),
-        triton.Config({"BLOCK_M": 128, "BLOCK_N": 64}, num_warps=8, num_stages=4),
-        triton.Config({"BLOCK_M": 128, "BLOCK_N": 128}, num_warps=8, num_stages=4),
-        triton.Config({"BLOCK_M": 128, "BLOCK_N": 256}, num_warps=8, num_stages=4),
+        triton.Config({"BLOCK_M": 64, "BLOCK_N": 64}, num_warps=4, num_stages=2),
+        triton.Config({"BLOCK_M": 64, "BLOCK_N": 128}, num_warps=4, num_stages=2),
+        triton.Config({"BLOCK_M": 64, "BLOCK_N": 256}, num_warps=4, num_stages=2),
+        triton.Config({"BLOCK_M": 128, "BLOCK_N": 64}, num_warps=4, num_stages=2),
+        triton.Config({"BLOCK_M": 128, "BLOCK_N": 128}, num_warps=4, num_stages=2),
+        triton.Config({"BLOCK_M": 128, "BLOCK_N": 256}, num_warps=4, num_stages=2),
     ],
     key=["hidden_size"],
     reset_to_zero=["Out"],
@@ -207,12 +201,13 @@ def _fwd_states_kernel(
 
     # Write back o
     if EVEN_N:
-        tl.atomic_add(o_ptrs, o, mask=mask_m[:, None])
+        tl.atomic_add(o_ptrs, o, mask=mask_m[:, None], sem="relaxed")
     else:
         tl.atomic_add(
             o_ptrs,
             o,
             mask=mask_m[:, None] & (offs_n[None, :] < hidden_size),
+            sem="relaxed",
         )
 
 
@@ -376,7 +371,7 @@ def _bwd_states_kernel(
     }
 )
 @triton.jit
-def _bwd_ec_scores_kernel(
+def _bwd_scores_kernel(
     DS,
     X,
     W,
@@ -464,12 +459,13 @@ def _bwd_ec_scores_kernel(
 
     # Write back dx
     if EVEN_N:
-        tl.atomic_add(dx_ptrs, dx.to(w.dtype), mask=mask_m[:, None])
+        tl.atomic_add(dx_ptrs, dx.to(w.dtype), mask=mask_m[:, None], sem="relaxed")
     else:
         tl.atomic_add(
             dx_ptrs,
             dx.to(w.dtype),
             mask=mask_m[:, None] & (offs_n[None, :] < hidden_size),
+            sem="relaxed",
         )
 
     # Load x
@@ -487,12 +483,13 @@ def _bwd_ec_scores_kernel(
 
     # Write back dwd
     if EVEN_N:
-        tl.atomic_add(dwd_ptrs, dwd.to(x.dtype))
+        tl.atomic_add(dwd_ptrs, dwd.to(x.dtype), sem="relaxed")
     else:
         tl.atomic_add(
             dwd_ptrs,
             dwd.to(x.dtype),
             mask=offs_n[None, :] < hidden_size,
+            sem="relaxed",
         )
 
     # Load g
@@ -518,12 +515,13 @@ def _bwd_ec_scores_kernel(
 
     # Write back dwu
     if EVEN_N:
-        tl.atomic_add(dwu_ptrs, dwu.to(x.dtype))
+        tl.atomic_add(dwu_ptrs, dwu.to(x.dtype), s, sem="relaxed")
     else:
         tl.atomic_add(
             dwu_ptrs,
             dwu.to(x.dtype),
             mask=offs_n[None, :] < hidden_size,
+            sem="relaxed",
         )
 
 
@@ -551,19 +549,20 @@ def _preprocess_expert_centric_indices_pytorch(
     num_tokens, num_experts_per_tok = Indices.shape
 
     token_ids = torch.arange(
-        num_tokens, dtype=torch.int64, device=Indices.device
+        num_tokens, dtype=torch.int32, device=Indices.device
     ).unsqueeze(1)
     token_ids = token_ids.expand(-1, num_experts_per_tok).reshape(-1)
-    expert_ids = Indices.reshape(-1).to(torch.int64)
+    expert_ids = Indices.reshape(-1).to(torch.int32)
     G = G.reshape(-1)
 
-    sorted_expert_ids, sorted_pair_ids = torch.sort(expert_ids, stable=True)
+    sorted_expert_ids, sorted_pair_ids = torch.sort(expert_ids)
+    sorted_pair_ids = sorted_pair_ids.to(torch.int32)
     sorted_token_ids = token_ids[sorted_pair_ids]
     sorted_G = G[sorted_pair_ids]
 
     expert_counts = torch.bincount(sorted_expert_ids, minlength=num_experts)
     expert_offsets = torch.zeros(
-        num_experts + 1, dtype=torch.int64, device=Indices.device
+        num_experts + 1, dtype=torch.int32, device=Indices.device
     )
     expert_offsets[1:] = torch.cumsum(expert_counts, dim=0)
 
@@ -710,7 +709,7 @@ def _flash_expert_backward(
             triton.cdiv(hidden_size, META["BLOCK_N"]),
         )
 
-    _bwd_ec_scores_kernel[grid_scores](
+    _bwd_scores_kernel[grid_scores](
         dS,
         X,
         W_d,
