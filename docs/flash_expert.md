@@ -71,7 +71,7 @@ pytest tests/test_expert.py -s
 You can run individual tests with, for example:
 
 ```bash
-pytest tests/test_expert.py::test_expert_forward_backward_throughput -s
+pytest tests/test_expert.py::test_expert_forward_throughput -s
 pytest tests/test_expert.py::test_expert_backward_throughput -s
 ```
 
