@@ -1,6 +1,11 @@
 # FlashMoE
 
+<div align="center">
+
+
 [English](./README.md) | **简体中文**
+
+</div>
 
 FlashMoE 是一个高性能的 Mixture-of-Experts 实现, 重点关注 **细粒度专家**.
 
